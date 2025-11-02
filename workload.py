@@ -1,33 +1,98 @@
 import asyncio
-from metorial import Metorial
-from openai import AsyncOpenAI
-import os
-import dotenv
+from config import metorial, openai
 
-dotenv.load_dotenv()
+async def get_model_specs(model_to_train: str) -> str:
+  """
+  Fetch detailed model specifications from HuggingFace.
+  
+  Extracts key information needed for GPU planning including:
+  - Total and activated parameters
+  - Architecture details
+  - Memory requirements
+  - Context length
+  - Model size
+  """
+  # Construct the direct HuggingFace URL for the model
+  model_url = f"https://huggingface.co/{model_to_train}"
+  
+  detailed_prompt = f"""Go to the HuggingFace model page at {model_url} and extract the complete model specifications.
 
-metorial= Metorial(api_key=os.getenv("METORIAL_API_KEY"))
-openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+CRITICAL: Look for the "Model Summary" section which contains a detailed table with all technical specifications.
 
-async def get_model_specs(model_to_train: str) -> dict[str, any]:
+Extract ALL of the following information if available:
+
+**ARCHITECTURE & STRUCTURE:**
+- Architecture type (e.g., Transformer, MoE/Mixture-of-Experts, etc.)
+- Number of layers (total and dense layers if specified)
+- Attention mechanism type
+
+**PARAMETERS:**
+- Total parameters (e.g., "1T" for 1 trillion, "32B" for 32 billion)
+- Activated parameters (important for MoE models)
+- Number of dense layers
+
+**DIMENSIONS:**
+- Attention hidden dimension
+- MoE hidden dimension (per expert)
+- Number of attention heads
+- Vocabulary size
+- Context length (in tokens, e.g., "256K" = 256,000)
+
+**MoE-SPECIFIC (if applicable):**
+- Number of experts
+- Selected experts per token
+- Number of shared experts
+
+**STORAGE & MEMORY:**
+- Tensor types available (FP32, BF16, FP8_E4M3, etc.)
+- Model size information
+- Memory requirements for inference
+
+**INSTRUCTIONS:**
+1. Navigate to the exact model page URL: {model_url}
+2. Locate the "Model Summary" section (usually section 2 on HuggingFace model pages)
+3. Read the specification table completely
+4. Extract ALL values from the table
+5. Also check the "Model Introduction" section for additional context
+6. Include any memory/compute requirements mentioned
+
+**OUTPUT FORMAT:**
+Provide a structured JSON-like summary with all extracted values. If you cannot find certain information, explicitly state "Not found" for that field.
+
+Example format:
+{{
+  "architecture": "...",
+  "total_parameters": "...",
+  "activated_parameters": "...",
+  "layers": "...",
+  "context_length": "...",
+  "hidden_dimension": "...",
+  "attention_heads": "...",
+  "vocabulary_size": "...",
+  "experts": "...",
+  "tensor_types": "...",
+  ...
+}}"""
+  
   response = await metorial.run(
-    message=f"Look up on https://huggingface.co/models to fetch detailed model specs like model_size, tensor_type, parameters for- {model_to_train}",
-    server_deployments=["svd_0mhhcboxk0xiq6KBeSqchw"], # tavily search
+    message=detailed_prompt,
+    server_deployments=["svd_0mhhcboxk0xiq6KBeSqchw"], # tavily search for web content
     client=openai,
     model="gpt-4o",
-    max_steps=25    # optional
+    max_steps=30  # Allow more steps for thorough search and extraction
   )
   return response.text
 
 # Workload configuration - model, data_size, deadline, budget(optional), precision(optional) 
-def get_workload_config(model, data, deadline, budget=None, precision=None):
-  model_specs = asyncio.run(get_model_specs(model))
-  print("Model specs: ", model_specs)
+async def get_workload_config(model, data, deadline, budget=None, precision=None):
+    model_specs = await get_model_specs(model)
 
-  return {
+    # TODO: add precision, framework, region_preference 
+    
+    return {
     "model_specs": model_specs,
-    "data_size": data_size,
+    "data": data,
     "deadline": deadline,
     "budget": budget,
     "precision": precision
-  }
+}
