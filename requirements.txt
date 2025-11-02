@@ -1,0 +1,12 @@
+# FastAPI and server dependencies
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+
+# OpenAI and AI tools
+openai
+metorial
+nivara
+
+# Async support
+asyncio

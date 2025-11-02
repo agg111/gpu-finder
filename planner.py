@@ -1,7 +1,13 @@
 import nivara as nv
 from datetime import datetime, timezone
 from config import openai
-from typing import Dict, Any
+from typing import Dict, Any, List
+import json
+import os
+import asyncio
+import dotenv
+
+dotenv.load_dotenv()
 
 HARD_GOALS = {
     "availability",
@@ -13,25 +19,27 @@ SOFT_GOALS = {
 }
 
 async def build_plan(
-    workload_config: Dict[str, Any], 
+    workload_config: Dict[str, Any],
     gpu_data: Any
-) -> str:
+) -> List[Dict[str, Any]]:
     """
     Build an execution plan for running the workload on available GPUs.
-    
-    Uses OpenAI directly for pure reasoning (no tools needed).
-    For tasks requiring tools, use Metorial instead.
-    
+
+    Returns a list of GPU configurations ranked by suitability.
+
     Args:
         workload_config: Dict containing model_specs, data, deadline, budget, precision
         gpu_data: GPU availability and pricing data (only these GPUs will be used in the plan)
-    
+
     Returns:
-        str: Structured plan with ranked GPU configurations
+        List[Dict]: List of ranked GPU configurations with structured fields
     """
-    
+    print("[Build Plan] 🤖 Generating REAL plan using OpenAI GPT-4o...")
+    print("[Build Plan] 📊 Analyzing workload requirements and GPU options...")
+    print("[Build Plan] ⏱️  This will take 10-20 seconds...")
+
     # Build a comprehensive prompt for the planning task
-    planning_message = f"""You are a GPU allocation planning agent. Create a detailed execution plan for running a machine learning workload.
+    planning_message = f"""You are a GPU allocation planning agent. Analyze the workload requirements and create a ranked list of GPU configurations.
 
 WORKLOAD REQUIREMENTS:
 - Model Specs: {workload_config.get('model_specs', 'Not provided')}
@@ -40,51 +48,59 @@ WORKLOAD REQUIREMENTS:
 - Budget: ${workload_config.get('budget', 'Not specified')}
 - Precision: {workload_config.get('precision', 'Not specified')}
 
-AVAILABLE GPU OPTIONS (USE ONLY THESE - DO NOT ADD OR INVENT OTHER GPUs):
+AVAILABLE GPU OPTIONS (USE ONLY THESE):
 {gpu_data}
 
-CRITICAL CONSTRAINT - READ CAREFULLY:
-1. You MUST only use the GPU options provided in the AVAILABLE GPU OPTIONS section above
-2. DO NOT add, invent, or reference GPU configurations that are NOT explicitly listed in the AVAILABLE GPU OPTIONS section
-3. Your plan should ONLY reference GPUs that appear in the AVAILABLE GPU OPTIONS section above
-4. Any GPU configurations in your plan MUST match exactly what's provided in the AVAILABLE GPU OPTIONS section
+TASK: Analyze and rank GPU configurations top three that best match the requirements.
 
-TASK: Analyze the workload requirements against the available GPU options to create an optimal execution plan.
+IMPORTANT:
+- Only use GPUs from the AVAILABLE GPU OPTIONS above
+- Prioritize configurations that meet availability and deadline (HARD_GOALS)
+- Consider budget as a soft constraint (SOFT_GOALS)
 
-Your plan should:
-1. Calculate compute requirements (FLOPs, memory bandwidth needs) based on the model specs
-2. Estimate GPU memory requirements (considering model size, batch size, gradients, optimizer states)
-3. From the AVAILABLE GPU OPTIONS listed above, rank the top configurations (up to 5, or fewer if fewer options are available) that best match the requirements
-4. For each ranked configuration from the available options, provide:
-   - Provider + instance type (must match exactly what's in the available GPU data)
-   - GPU count and type (must match exactly what's in the available GPU data)
-   - CPU, SSD, memory configuration (use the data provided)
-   - Cost estimate (use pricing from the available GPU data)
-   - Expected runtime (considering the deadline constraint)
-   - Region/availability (from the available GPU data)
-   - Risk assessment (availability, deadline feasibility, budget constraints)
+Return a JSON object with this exact structure:
+{{
+  "configurations": [
+    {{
+      "rank": 1,
+      "provider": "GCP",
+      "instance_type": "a2-highgpu-8g",
+      "gpu_count": 8,
+      "gpu_type": "NVIDIA A100",
+      "gpu_memory": "40GB",
+      "cpu": "96 vCPUs",
+      "memory": "680 GB",
+      "storage": "8x 1000 GB NVMe SSD (optional field, omit if not available)",
+      "cost_per_hour": 29.39,
+      "total_cost": 1469.50,
+      "expected_runtime": "48-50 hours",
+      "regions": ["us-central1", "us-east4", "europe-west4"],
+      "availability": "Generally available",
+      "risks": "Low risk. Generally available, meets deadline, within budget.",
+      "recommendation": "Optimal choice - best balance of performance, cost, and availability"
+    }},
+    {{
+      "rank": 2,
+      ...
+    }}
+  ]
+}}
 
-STRICT RULES - FOLLOW THESE:
-- Only rank and analyze GPUs that appear in the AVAILABLE GPU OPTIONS section
-- If fewer than 5 GPUs are available, rank only the available ones
-- Do not reference any GPU configurations not explicitly mentioned in the available options
-- Every GPU in your plan must be traceable back to the AVAILABLE GPU OPTIONS section above
-- Prioritize configurations that meet HARD_GOALS (availability, duration) first, then optimize for SOFT_GOALS (budget)
-
-Format your response as a structured plan with clear sections."""
+Return ONLY valid JSON, no additional text or markdown."""
     
     # Use OpenAI directly for pure reasoning (no tools needed)
     # Note: If you need tools, use metorial.run() instead, which requires server_deployments
     response = await openai.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are an expert GPU allocation planning agent specializing in machine learning infrastructure."},
+            {"role": "system", "content": "You are an expert GPU allocation planning agent. Return only valid JSON, no markdown or additional text."},
             {"role": "user", "content": planning_message}
         ],
         temperature=0.7,
-        max_tokens=2000
+        max_tokens=3000,
+        response_format={"type": "json_object"}
     )
-    
+
     # Record metrics for plan building
     usage = response.usage if hasattr(response, 'usage') else None
     try:
@@ -97,6 +113,41 @@ Format your response as a structured plan with clear sections."""
     except Exception as e:
       # Non-blocking: log but don't fail workflow if metrics fail
       print(f"Warning: Failed to record metrics for build_plan: {e}")
-    
-    return response.choices[0].message.content
+
+    # Parse JSON response
+    content = response.choices[0].message.content
+    try:
+        # Try to parse as JSON
+        parsed = json.loads(content)
+
+        # Handle both array and object with array
+        if isinstance(parsed, list):
+            return parsed
+        elif isinstance(parsed, dict) and 'configurations' in parsed:
+            return parsed['configurations']
+        elif isinstance(parsed, dict) and 'plans' in parsed:
+            return parsed['plans']
+        else:
+            # If it's a single object, wrap it in a list
+            return [parsed]
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON response: {e}")
+        print(f"Response content: {content[:500]}")
+        # Return a fallback structure
+        return [{
+            "rank": 1,
+            "provider": "Error",
+            "instance_type": "Failed to parse plan",
+            "gpu_count": 0,
+            "gpu_type": "N/A",
+            "gpu_memory": "N/A",
+            "cpu": "N/A",
+            "memory": "N/A",
+            "cost_per_hour": 0,
+            "expected_runtime": "Unknown",
+            "regions": [],
+            "availability": "Unknown",
+            "risks": "Failed to generate plan. Please try again.",
+            "recommendation": "Error occurred"
+        }]
 

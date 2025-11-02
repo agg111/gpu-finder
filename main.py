@@ -9,11 +9,13 @@ async def main() -> None:
     workflow_start = datetime.now(timezone.utc)
     
     print("Fetching model specs...")
-    workload_config = await get_workload_config(model="moonshotai/Kimi-K2-Instruct-0905", 
-    data="500GB",  # todo point to some training data
-    deadline="50", # assuming hours
-    budget=None,
-    precision=None)
+    workload_config = await get_workload_config(
+        model="moonshotai/Kimi-K2-Instruct-0905", 
+        data="500GB",  # todo point to some training data
+        deadline="50", # assuming hours
+        budget=None,
+        precision=None
+    )
     print(f"Model specs: {workload_config['model_specs']}\n")
 
     print("Finding GPUs...")

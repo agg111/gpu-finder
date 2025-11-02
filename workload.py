@@ -2,11 +2,15 @@ import asyncio
 import nivara as nv
 from datetime import datetime, timezone
 from config import metorial, openai
+import os
+import dotenv
+
+dotenv.load_dotenv()
 
 async def get_model_specs(model_to_train: str) -> str:
   """
   Fetch detailed model specifications from HuggingFace.
-  
+
   Extracts key information needed for GPU planning including:
   - Total and activated parameters
   - Architecture details
@@ -14,6 +18,8 @@ async def get_model_specs(model_to_train: str) -> str:
   - Context length
   - Model size
   """
+  print(f"[Model Specs] 🌐 Fetching REAL data from HuggingFace for {model_to_train}...")
+  print(f"[Model Specs] 📡 This will take 30-60 seconds...")
   # Construct the direct HuggingFace URL for the model
   model_url = f"https://huggingface.co/{model_to_train}"
   
@@ -80,7 +86,7 @@ Example format:
     message=detailed_prompt,
     server_deployments=["svd_0mhhcboxk0xiq6KBeSqchw"], # tavily search for web content
     client=openai,
-    model="gpt-4o",
+    model="gpt-4.1-mini",
     max_steps=30  # Allow more steps for thorough search and extraction
   )
   
