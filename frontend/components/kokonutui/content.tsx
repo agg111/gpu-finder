@@ -10,9 +10,19 @@ import type { PlanResponse } from "@/lib/api"
 
 export default function Content() {
   const [currentPlan, setCurrentPlan] = useState<PlanResponse | null>(null)
+  const [formData, setFormData] = useState<{
+    modelName: string
+    workload: string
+    duration: string
+    budget?: string
+    startDateTime?: string
+  } | null>(null)
 
-  const handlePlanCreated = (plan: PlanResponse) => {
+  const handlePlanCreated = (plan: PlanResponse, formValues?: any) => {
     setCurrentPlan(plan)
+    if (formValues) {
+      setFormData(formValues)
+    }
   }
 
   return (
@@ -31,7 +41,7 @@ export default function Content() {
           Plan Specs
         </h2>
         <div className="flex-1">
-          <List01 className="h-full" plan={currentPlan} />
+          <List01 className="h-full" plan={currentPlan} formData={formData} />
         </div>
       </div>
 

@@ -371,7 +371,7 @@ async def schedule_training(request: ScheduleRequest):
 
         gpu_config = request.gpuConfig
 
-        # Create title and description using selected plan data
+        # Create title and description using selected plan data (from user form)
         event_title = f"GPU Training: {request.modelName}"
         event_description = f"""GPU Model Training Session
 
@@ -380,15 +380,17 @@ Workload: {request.workload}
 Duration: {request.duration} hours
 Budget: ${request.budget if request.budget else 'Not specified'}
 
-GPU Configuration:
+GPU Configuration (Selected Plan):
 - Provider: {gpu_config.get('provider', 'N/A')}
 - Instance: {gpu_config.get('instance_type', 'N/A')}
 - GPU: {gpu_config.get('gpu_count', 'N/A')}x {gpu_config.get('gpu_type', 'N/A')}
+- GPU Memory: {gpu_config.get('gpu_memory', 'N/A')}
 - Cost: ${gpu_config.get('cost_per_hour', 0):.2f}/hour
 
-Scheduled via GPU Finder Platform"""
+Scheduled via GPU Finder Platform
+Time Zone: Pacific Time (PST/PDT)"""
 
-        print(f"[{datetime.now(timezone.utc)}] Creating calendar event for {event_datetime.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        print(f"[{datetime.now(timezone.utc)}] Creating calendar event for {event_datetime.strftime('%Y-%m-%d %I:%M %p %Z')}")
 
         # Run calendar creation in background (don't block the response)
         async def create_calendar_event_background():
@@ -448,35 +450,30 @@ async def trigger_training(request: TrainingRequest):
 
         print(f"[{datetime.now(timezone.utc)}] Training started: {result.get('status')}")
 
-        # Create calendar event for current time in PST (blocking is OK here)
+        # Create calendar event for current time in PST
         current_time = datetime.now(ZoneInfo("America/Los_Angeles"))
         gpu_config = request.gpuConfig
 
-        # Create title and description using selected plan data
-        event_title = f"Model Training: {request.modelName}"
-        event_description = f"""GPU Model Training Session:
+        # Create title and description using selected plan data (from user form)
+        event_title = f"GPU Training: {request.modelName}"
+        event_description = f"""GPU Model Training Session
 
 Model: {request.modelName}
 Workload: {request.workload}
 Duration: {request.duration} hours
 Budget: ${request.budget if request.budget else 'Not specified'}
 
-GPU Configuration:
+GPU Configuration (Selected Plan):
 - Provider: {gpu_config.get('provider', 'N/A')}
 - Instance: {gpu_config.get('instance_type', 'N/A')}
 - GPU: {gpu_config.get('gpu_count', 'N/A')}x {gpu_config.get('gpu_type', 'N/A')}
+- GPU Memory: {gpu_config.get('gpu_memory', 'N/A')}
 - Cost: ${gpu_config.get('cost_per_hour', 0):.2f}/hour
 
-Started via GPU Finder Platform"""
+Started via GPU Finder Platform
+Time Zone: Pacific Time (PST/PDT)"""
 
-        # Convert current time to PST
-        if current_time.tzinfo is None:
-            current_time = current_time.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
-        else:
-            # Convert to PST if it has a different timezone
-            current_time = current_time.astimezone(ZoneInfo("America/Los_Angeles"))
-
-        print(f"[{datetime.now(timezone.utc)}] Creating calendar event for current time: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        print(f"[{datetime.now(timezone.utc)}] Creating calendar event for current time: {current_time.strftime('%Y-%m-%d %I:%M %p %Z')}")
 
         # Run calendar creation in background (don't block the response)
         async def create_calendar_event_background():

@@ -21,7 +21,7 @@ interface GPUConfigFormValues {
 }
 
 interface GPUConfigFormProps {
-  onPlanCreated?: (plan: PlanResponse) => void
+  onPlanCreated?: (plan: PlanResponse, formData?: GPUConfigFormValues) => void
 }
 
 export default function GPUConfigForm({ onPlanCreated }: GPUConfigFormProps) {
@@ -116,9 +116,9 @@ export default function GPUConfigForm({ onPlanCreated }: GPUConfigFormProps) {
               const result = jsonData.data
               setSuccess(`Plan created successfully in ${result.duration_seconds.toFixed(1)}s!`)
 
-              // Notify parent component
+              // Notify parent component with plan and form data
               if (onPlanCreated) {
-                onPlanCreated(result)
+                onPlanCreated(result, data)
               }
             } else if (jsonData.type === 'error') {
               throw new Error(jsonData.message)

@@ -4,11 +4,115 @@ Launches minimal instances with automatic training and shutdown.
 """
 import boto3
 import os
+import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def ensure_iam_role_with_s3_access(s3_bucket: str, role_name: str = "gpu-finder-ec2-role") -> str:
+    """
+    Create or update IAM role with S3 write permissions.
+
+    Args:
+        s3_bucket: S3 bucket name to grant access to
+        role_name: Name of the IAM role to create/update
+
+    Returns:
+        Name of the instance profile to use
+    """
+    iam = boto3.client("iam")
+
+    # Trust policy allowing EC2 to assume this role
+    trust_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "ec2.amazonaws.com"},
+                "Action": "sts:AssumeRole"
+            }
+        ]
+    }
+
+    # S3 access policy
+    s3_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:PutObjectAcl",
+                    "s3:GetObject"
+                ],
+                "Resource": f"arn:aws:s3:::{s3_bucket}/*"
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket"
+                ],
+                "Resource": f"arn:aws:s3:::{s3_bucket}"
+            }
+        ]
+    }
+
+    policy_name = f"{role_name}-s3-policy"
+
+    try:
+        # Try to create the role
+        print(f"[IAM] 🔧 Creating IAM role: {role_name}")
+        iam.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(trust_policy),
+            Description="GPU Finder EC2 role with S3 access for training logs"
+        )
+        print(f"[IAM] ✅ IAM role created: {role_name}")
+    except iam.exceptions.EntityAlreadyExistsException:
+        print(f"[IAM] ℹ️  IAM role already exists: {role_name}")
+
+    try:
+        # Put/update the inline policy
+        print(f"[IAM] 🔧 Attaching S3 policy to role...")
+        iam.put_role_policy(
+            RoleName=role_name,
+            PolicyName=policy_name,
+            PolicyDocument=json.dumps(s3_policy)
+        )
+        print(f"[IAM] ✅ S3 policy attached to role")
+    except Exception as e:
+        print(f"[IAM] ⚠️  Error attaching policy: {e}")
+
+    # Create instance profile if it doesn't exist
+    instance_profile_name = role_name
+    try:
+        print(f"[IAM] 🔧 Creating instance profile: {instance_profile_name}")
+        iam.create_instance_profile(
+            InstanceProfileName=instance_profile_name
+        )
+        print(f"[IAM] ✅ Instance profile created")
+
+        # Add role to instance profile
+        iam.add_role_to_instance_profile(
+            InstanceProfileName=instance_profile_name,
+            RoleName=role_name
+        )
+        print(f"[IAM] ✅ Role added to instance profile")
+
+        # Wait a bit for IAM to propagate
+        import time
+        print(f"[IAM] ⏳ Waiting 5 seconds for IAM to propagate...")
+        time.sleep(5)
+
+    except iam.exceptions.EntityAlreadyExistsException:
+        print(f"[IAM] ℹ️  Instance profile already exists: {instance_profile_name}")
+    except Exception as e:
+        print(f"[IAM] ⚠️  Error with instance profile: {e}")
+
+    return instance_profile_name
 
 
 def load_training_script() -> str:
@@ -134,9 +238,28 @@ async def launch_training_instance(
         # Get AWS configuration from environment
         aws_key_name = os.getenv("AWS_KEY_NAME")  # EC2 SSH key pair name (optional)
         # aws_security_group = os.getenv("AWS_SECURITY_GROUP_ID")
-        aws_iam_role = (os.getenv("AWS_IAM_ROLE") or os.getenv("AWS_IAM_INSTANCE_PROFILE") or "").strip()  # IAM instance profile name (optional)
-        aws_iam_role = aws_iam_role if aws_iam_role else None  # Convert empty string to None
         s3_bucket = os.getenv("AWS_S3_BUCKET")
+
+        # Get IAM role from environment or use default
+        aws_iam_role = (os.getenv("AWS_IAM_ROLE") or os.getenv("AWS_IAM_INSTANCE_PROFILE") or "").strip()
+        aws_iam_role = aws_iam_role if aws_iam_role else None
+
+        # If S3 bucket is configured, ensure the role has proper S3 permissions
+        if s3_bucket and aws_iam_role:
+            try:
+                # Update existing role with S3 permissions
+                print(f"[AWS] 🔧 Updating IAM role '{aws_iam_role}' with S3 permissions...")
+                aws_iam_role = ensure_iam_role_with_s3_access(s3_bucket, role_name=aws_iam_role)
+            except Exception as e:
+                print(f"[AWS] ⚠️  Failed to update IAM role: {e}")
+                print(f"[AWS] ⚠️  Proceeding anyway - S3 uploads may fail")
+        elif s3_bucket and not aws_iam_role:
+            # No role configured, create default one
+            try:
+                aws_iam_role = ensure_iam_role_with_s3_access(s3_bucket)
+            except Exception as e:
+                print(f"[AWS] ⚠️  Failed to create IAM role: {e}")
+                print(f"[AWS] ⚠️  Will launch without IAM role - S3 uploads will fail")
 
         # Detect S3 bucket region if bucket is configured
         aws_region = os.getenv("AWS_REGION", "us-west-2")

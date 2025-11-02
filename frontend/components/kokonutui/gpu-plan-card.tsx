@@ -218,41 +218,12 @@ export default function GPUPlanCard({ config, className, onSchedule, onRunNow, h
 
       {/* Action Buttons */}
       <div className="flex gap-2">
-        {/* Schedule Button */}
-        {onSchedule && hasStartDateTime && (
-          <Button
-            onClick={handleSchedule}
-            disabled={isScheduling || scheduleStatus?.status === "success"}
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
-          >
-            {isScheduling ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Scheduling...
-              </>
-            ) : scheduleStatus?.status === "success" ? (
-              <>
-                <CheckCircle className="mr-2 h-4 w-4" />
-                Scheduled
-              </>
-            ) : (
-              <>
-                <Calendar className="mr-2 h-4 w-4" />
-                Schedule
-              </>
-            )}
-          </Button>
-        )}
-
         {/* Run Now Button */}
         {onRunNow && (
           <Button
             onClick={handleRunNow}
             disabled={isRunning || trainingStatus?.status === "success"}
-            className={cn(
-              "text-white disabled:opacity-50",
-              hasStartDateTime && onSchedule ? "flex-1 bg-blue-600 hover:bg-blue-700" : "w-full bg-blue-600 hover:bg-blue-700"
-            )}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
           >
             {isRunning ? (
               <>
