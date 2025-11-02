@@ -1,3 +1,5 @@
+import nivara as nv
+from datetime import datetime, timezone
 from config import openai
 from typing import Dict, Any
 
@@ -82,6 +84,19 @@ Format your response as a structured plan with clear sections."""
         temperature=0.7,
         max_tokens=2000
     )
+    
+    # Record metrics for plan building
+    usage = response.usage if hasattr(response, 'usage') else None
+    try:
+      nv.record(
+          metric="gpu.finder.build_plan",
+          ts=datetime.now(timezone.utc),
+          input_tokens=usage.prompt_tokens if usage and usage.prompt_tokens else len(planning_message) // 4,
+          output_tokens=usage.completion_tokens if usage and usage.completion_tokens else len(response.choices[0].message.content) // 4,
+      )
+    except Exception as e:
+      # Non-blocking: log but don't fail workflow if metrics fail
+      print(f"Warning: Failed to record metrics for build_plan: {e}")
     
     return response.choices[0].message.content
 

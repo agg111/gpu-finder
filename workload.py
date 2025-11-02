@@ -1,4 +1,6 @@
 import asyncio
+import nivara as nv
+from datetime import datetime, timezone
 from config import metorial, openai
 
 async def get_model_specs(model_to_train: str) -> str:
@@ -81,6 +83,20 @@ Example format:
     model="gpt-4o",
     max_steps=30  # Allow more steps for thorough search and extraction
   )
+  
+  # Record metrics for model specs retrieval
+  # Note: metorial.run() doesn't expose token counts directly, so we estimate or use response length
+  try:
+    nv.record(
+      metric="gpu.finder.model_specs",
+      ts=datetime.now(timezone.utc),
+      input_tokens=len(detailed_prompt) // 4,  # Rough estimate: ~4 chars per token
+      output_tokens=len(response.text) // 4,
+    )
+  except Exception as e:
+    # Non-blocking: log but don't fail workflow if metrics fail
+    print(f"Warning: Failed to record metrics for model_specs: {e}")
+  
   return response.text
 
 # Workload configuration - model, data_size, deadline, budget(optional), precision(optional) 
