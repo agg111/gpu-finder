@@ -10,3 +10,6 @@ nivara
 
 # Async support
 asyncio
+
+# AWS SDK for EC2 instance management
+boto3

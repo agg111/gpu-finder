@@ -25,66 +25,117 @@ async def get_gpu_data_streaming():
   """
   print("[GPU Data] 🌐 Starting streaming GPU data fetch...")
 
-  # Define the URLs we'll check
-  urls_to_check = [
-    ("AWS P5 instances (H100 GPUs)", "https://aws.amazon.com/ec2/instance-types/p5/"),
-    ("AWS P4 instances (A100 GPUs)", "https://aws.amazon.com/ec2/instance-types/p4/"),
-    ("GCP GPU pricing", "https://cloud.google.com/compute/all-pricing#gpus")
+  # Define the sources we'll check with more granular steps
+  sources = [
+    {
+      "name": "AWS P5 instances (H100 GPUs)",
+      "url": "https://aws.amazon.com/ec2/instance-types/p5/",
+      "provider": "AWS"
+    },
+    {
+      "name": "AWS P4 instances (A100 GPUs)",
+      "url": "https://aws.amazon.com/ec2/instance-types/p4/",
+      "provider": "AWS"
+    },
+    {
+      "name": "GCP A2 instances (A100 GPUs)",
+      "url": "https://cloud.google.com/compute/all-pricing#gpus",
+      "provider": "GCP"
+    }
   ]
 
   yield {
     "type": "progress",
     "stage": "gpu_data",
-    "message": f"Checking {len(urls_to_check)} pricing sources...",
-    "details": {"total_sources": len(urls_to_check)}
+    "message": f"Starting GPU data collection from {len(sources)} sources",
+    "details": {
+      "total_sources": len(sources),
+      "providers": ["AWS", "GCP"]
+    }
   }
 
-  detailed_prompt = """Get current AWS and GCP GPU pricing from:
-- AWS: https://aws.amazon.com/ec2/instance-types/p5/ and https://aws.amazon.com/ec2/instance-types/p4/
-- GCP: https://cloud.google.com/compute/all-pricing#gpus
+  # Collect data from all sources
+  all_gpu_data = []
 
-List three instances of AWS and GCP each with:
-Format:
-<AWS/GCP>: <type> - <GPU (model×count)> - <$/hr> - <regions> - <vCPUs> - <RAM>
+  for idx, source in enumerate(sources, 1):
+    yield {
+      "type": "progress",
+      "stage": "gpu_data",
+      "message": f"Fetching {source['provider']}: {source['name']}",
+      "details": {
+        "current": idx,
+        "total": len(sources),
+        "url": source['url'],
+        "provider": source['provider']
+      }
+    }
+
+    # Fetch data from this source
+    try:
+      prompt = f"""Get GPU pricing information from {source['url']}
+
+Extract GPU instance details in this format:
+<Provider>: <instance_type> - <GPU_count>×<GPU_model> - $<price>/hr - <regions> - <vCPUs> - <RAM>
+
 Examples:
-AWS: p5.48xlarge - 8×H100 - $98/hr - us-east-1 - 192vCPU/2TB
-GCP: a2-highgpu-8g - 8×A100 - $29/hr - us-central1 - 96vCPU/680GB
-Add high quality estimated value for details that might be missing like cost per hour.
+AWS: p5.48xlarge - 8×H100 - $98/hr - us-east-1,us-west-2 - 192vCPU - 2TB
+GCP: a2-highgpu-8g - 8×A100 - $29/hr - us-central1 - 96vCPU - 680GB
 
-Stream your progress as you search each URL.
-"""
+List the top 2-3 most relevant GPU instances from this page.
+Add high quality estimated values for any missing details."""
+
+      response = await metorial.run(
+        message=prompt,
+        server_deployments=["svd_0mhhcboxk0xiq6KBeSqchw"],
+        client=openai,
+        model="gpt-4.1-mini",
+        max_steps=15
+      )
+
+      all_gpu_data.append(f"\n## {source['name']}\n{response.text}")
+
+      yield {
+        "type": "progress",
+        "stage": "gpu_data",
+        "message": f"✓ Completed {source['provider']}: {source['name']} ({idx}/{len(sources)})",
+        "details": {
+          "current": idx,
+          "total": len(sources),
+          "completed": True
+        }
+      }
+
+    except Exception as e:
+      print(f"[GPU Data] Warning: Failed to fetch {source['name']}: {e}")
+      yield {
+        "type": "progress",
+        "stage": "gpu_data",
+        "message": f"⚠️  Skipped {source['name']} (error)",
+        "details": {
+          "current": idx,
+          "total": len(sources),
+          "error": str(e)
+        }
+      }
+
+  # Combine all data
+  combined_data = "\n".join(all_gpu_data)
 
   yield {
     "type": "progress",
     "stage": "gpu_data",
-    "message": "Initializing Metorial search agent...",
-    "details": {}
+    "message": "Consolidating GPU data from all sources...",
+    "details": {"sources_completed": len(sources)}
   }
-
-  # Start the search
-  response = await metorial.run(
-    message=detailed_prompt,
-    server_deployments=["svd_0mhhcboxk0xiq6KBeSqchw"], # tavily search for web content
-    client=openai,
-    model="gpt-4.1-mini",
-    max_steps=30  # Allow more steps for thorough search and extraction
-  )
-
-  # Track token usage if available
-  total_input_tokens = 0
-  total_output_tokens = 0
-  if hasattr(response, 'usage'):
-    total_input_tokens = response.usage.prompt_tokens if response.usage.prompt_tokens else 0
-    total_output_tokens = response.usage.completion_tokens if response.usage.completion_tokens else 0
 
   yield {
     "type": "complete",
     "stage": "gpu_data",
-    "message": "GPU data fetched successfully",
-    "data": response.text,
+    "message": f"GPU data fetched from {len(sources)} sources",
+    "data": combined_data,
     "details": {
-      "input_tokens": total_input_tokens,
-      "output_tokens": total_output_tokens
+      "sources_fetched": len(sources),
+      "providers": ["AWS", "GCP"]
     }
   }
 

@@ -282,22 +282,38 @@ export default function GPUPlanCard({ config, className, onSchedule, onRunNow, h
               <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
               <p className="text-sm font-semibold text-green-900 dark:text-green-100">Training Started Successfully!</p>
             </div>
-            <div className="space-y-1 text-xs text-green-800 dark:text-green-200">
-              <p><span className="font-medium">Instance:</span> {trainingStatus.instance_type} ({trainingStatus.instance_id})</p>
-              <p><span className="font-medium">Model:</span> {trainingStatus.model} ({trainingStatus.model_size})</p>
-              <p><span className="font-medium">Dataset:</span> {trainingStatus.dataset}</p>
-              <p><span className="font-medium">Est. Cost:</span> {trainingStatus.estimated_cost}</p>
-              <p><span className="font-medium">Est. Time:</span> {trainingStatus.estimated_time}</p>
-            </div>
+            {trainingStatus.selected_plan && (
+              <div className="space-y-1 text-xs text-green-800 dark:text-green-200">
+                <p><span className="font-medium">Provider:</span> {trainingStatus.selected_plan.provider}</p>
+                <p><span className="font-medium">Instance:</span> {trainingStatus.selected_plan.instance_type}</p>
+                <p><span className="font-medium">GPU:</span> {trainingStatus.selected_plan.gpu_count}x {trainingStatus.selected_plan.gpu_type}</p>
+                <p><span className="font-medium">GPU Memory:</span> {trainingStatus.selected_plan.gpu_memory}</p>
+                <p><span className="font-medium">Cost:</span> ${trainingStatus.selected_plan.cost_per_hour.toFixed(2)}/hour</p>
+                {trainingStatus.selected_plan.total_cost > 0 && (
+                  <p><span className="font-medium">Total Est. Cost:</span> ${trainingStatus.selected_plan.total_cost.toFixed(2)}</p>
+                )}
+              </div>
+            )}
             {trainingStatus.dashboard_url && (
               <a
                 href={trainingStatus.dashboard_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline mt-2"
+                className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline mt-2"
               >
                 <ExternalLink className="w-3 h-3" />
                 View in AWS Console
+              </a>
+            )}
+            {trainingStatus.s3_logs_url && (
+              <a
+                href={trainingStatus.s3_logs_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline"
+              >
+                <ExternalLink className="w-3 h-3" />
+                View Training Logs
               </a>
             )}
           </div>

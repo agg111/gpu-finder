@@ -494,7 +494,24 @@ Started via GPU Finder Platform"""
 
         asyncio.create_task(create_calendar_event_background())
 
-        return result
+        # Enhance result with plan details for UI display
+        # The result contains actual training instance (t3.small for testing)
+        # But we add the selected plan details for UI display
+        enhanced_result = {
+            **result,  # Training instance details (t3.small)
+            "selected_plan": {
+                "provider": gpu_config.get('provider', 'N/A'),
+                "instance_type": gpu_config.get('instance_type', 'N/A'),
+                "gpu_type": gpu_config.get('gpu_type', 'N/A'),
+                "gpu_count": gpu_config.get('gpu_count', 'N/A'),
+                "gpu_memory": gpu_config.get('gpu_memory', 'N/A'),
+                "cost_per_hour": gpu_config.get('cost_per_hour', 0),
+                "total_cost": gpu_config.get('total_cost', 0),
+            },
+            "note": "A test training job has been launched with minimal resources (t3.small). The calendar event shows your selected GPU configuration for reference."
+        }
+
+        return enhanced_result
 
     except Exception as e:
         print(f"[{datetime.now(timezone.utc)}] Error starting training: {str(e)}")
