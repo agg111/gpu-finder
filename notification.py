@@ -1,6 +1,7 @@
 import asyncio
 import os
 from datetime import datetime
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -9,12 +10,12 @@ load_dotenv()
 from metorial import Metorial
 from openai import AsyncOpenAI
 
-async def add_to_calendar(datetime: datetime):
+async def add_to_calendar(dt: datetime, title: str = "Model Training Scheduled", description: Optional[str] = None):
   try:
     # Initialize clients
     metorial_api_key = os.getenv("METORIAL_API_KEY")
     openai_api_key = os.getenv("OPENAI_API_KEY")
-    google_cal_deployment_id = os.getenv("GOOGLE_CALENDAR_DEPLOYMENT_ID")
+    google_cal_deployment_id = os.getenv("GOOGLE_CALENDAR")
 
     # Validate environment variables
     if not metorial_api_key:
@@ -67,17 +68,21 @@ async def add_to_calendar(datetime: datetime):
       return
 
     print("\n📅 Creating calendar event...")
-    print(f"   Date: {datetime.date()}")
-    print(f"   Time: {datetime.time()}")
+    print(f"   Date: {dt.date()}")
+    print(f"   Time: {dt.time()}")
+    print(f"   Title: {title}")
+
+    # Use provided description or default
+    event_description = description or "GPU training job scheduled via GPU Finder platform"
 
     try:
       result = await metorial.run(
         message=f"""Create a Google Calendar event with the following details:
-- Title: "Model Training Scheduled"
-- Date: {datetime.date()}
-- Time: {datetime.time()}
+- Title: "{title}"
+- Date: {dt.date()}
+- Time: {dt.time()}
 - Guest email: aishwaryagune@gmail.com
-- Description: "GPU training job scheduled via GPU Finder platform"
+- Description: "{event_description}"
 
 Please create this event and confirm it was created successfully.""",
         server_deployments=[
@@ -106,4 +111,8 @@ Please create this event and confirm it was created successfully.""",
     traceback.print_exc()
 
 if __name__ == "__main__":
-  asyncio.run(add_to_calendar(datetime=datetime(2025, 11, 2, 10, 0, 0)))
+  asyncio.run(add_to_calendar(
+    dt=datetime(2025, 11, 2, 10, 0, 0),
+    title="Test Model Training",
+    description="Testing GPU Finder calendar integration"
+  ))

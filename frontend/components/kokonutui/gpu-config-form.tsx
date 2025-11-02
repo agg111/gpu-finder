@@ -15,6 +15,7 @@ interface GPUConfigFormValues {
   workload: string
   duration: string
   budget: string
+  startDateTime: string
   precision: string
   framework: string
 }
@@ -36,6 +37,7 @@ export default function GPUConfigForm({ onPlanCreated }: GPUConfigFormProps) {
       workload: "",
       duration: "",
       budget: "",
+      startDateTime: "",
       precision: "",
       framework: "",
     },
@@ -45,7 +47,7 @@ export default function GPUConfigForm({ onPlanCreated }: GPUConfigFormProps) {
     setIsLoading(true)
     setError(null)
     setSuccess(null)
-    setProgressMessage("Creating plan... This may take up to 2 minutes.")
+    setProgressMessage("Initializing plan creation...")
 
     const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -55,12 +57,13 @@ export default function GPUConfigForm({ onPlanCreated }: GPUConfigFormProps) {
         workload: data.workload,
         duration: data.duration,
         budget: data.budget || undefined,
+        startDateTime: data.startDateTime || undefined,
         precision: data.precision || undefined,
         framework: data.framework || undefined,
       }
 
-      // Use regular POST request (no streaming)
-      const response = await fetch(`${API_BASE_URL}/api/plan`, {
+      // Use SSE streaming for real-time progress updates
+      const response = await fetch(`${API_BASE_URL}/api/plan/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,13 +76,57 @@ export default function GPUConfigForm({ onPlanCreated }: GPUConfigFormProps) {
         throw new Error(errorData.detail?.message || 'Failed to create plan')
       }
 
-      const result = await response.json()
+      // Read SSE stream
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
 
-      setSuccess(`Plan created successfully in ${result.duration_seconds.toFixed(1)}s!`)
+      if (!reader) {
+        throw new Error('No response body')
+      }
 
-      // Notify parent component
-      if (onPlanCreated) {
-        onPlanCreated(result)
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+
+        if (done) {
+          break
+        }
+
+        // Decode the chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete SSE messages (ending with \n\n)
+        const messages = buffer.split('\n\n')
+        buffer = messages.pop() || '' // Keep incomplete message in buffer
+
+        for (const message of messages) {
+          if (!message.trim() || !message.startsWith('data: ')) {
+            continue
+          }
+
+          try {
+            const jsonData = JSON.parse(message.slice(6)) // Remove "data: " prefix
+
+            if (jsonData.type === 'status') {
+              // Update progress message
+              setProgressMessage(`${jsonData.message} (${jsonData.elapsed.toFixed(1)}s elapsed)`)
+            } else if (jsonData.type === 'result') {
+              // Final result received
+              const result = jsonData.data
+              setSuccess(`Plan created successfully in ${result.duration_seconds.toFixed(1)}s!`)
+
+              // Notify parent component
+              if (onPlanCreated) {
+                onPlanCreated(result)
+              }
+            } else if (jsonData.type === 'error') {
+              throw new Error(jsonData.message)
+            }
+          } catch (parseError) {
+            console.error('Error parsing SSE message:', parseError)
+          }
+        }
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to create plan. Please try again."
@@ -159,6 +206,24 @@ export default function GPUConfigForm({ onPlanCreated }: GPUConfigFormProps) {
                   <Input
                     type="number"
                     placeholder="e.g., 500"
+                    className="bg-white dark:bg-[#18181B] border-gray-200 dark:border-[#27272A] text-gray-900 dark:text-white"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="startDateTime"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-gray-900 dark:text-white">Start Date & Time</FormLabel>
+                <FormControl>
+                  <Input
+                    type="datetime-local"
                     className="bg-white dark:bg-[#18181B] border-gray-200 dark:border-[#27272A] text-gray-900 dark:text-white"
                     {...field}
                   />

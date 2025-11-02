@@ -105,16 +105,17 @@ Example format:
   
   return response.text
 
-# Workload configuration - model, data_size, deadline, budget(optional), precision(optional) 
-async def get_workload_config(model, data, deadline, budget=None, precision=None):
+# Workload configuration - model, data_size, deadline, budget(optional), precision(optional), start_datetime(optional)
+async def get_workload_config(model, data, deadline, budget=None, start_datetime=None, precision=None):
     model_specs = await get_model_specs(model)
 
-    # TODO: add precision, framework, region_preference 
-    
+    # TODO: add framework, region_preference
+
     return {
     "model_specs": model_specs,
     "data": data,
     "deadline": deadline,
     "budget": budget,
+    "start_datetime": start_datetime,
     "precision": precision
 }

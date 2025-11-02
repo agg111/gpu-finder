@@ -1,6 +1,7 @@
 import nivara as nv
 from datetime import datetime, timezone
-from config import openai
+from config import metorial as metorial_client, openai as openai_client
+from openai import AsyncOpenAI
 from typing import Dict, Any, List
 import json
 import os
@@ -39,6 +40,8 @@ async def build_plan(
     print("[Build Plan] ⏱️  This will take 10-20 seconds...")
 
     # Build a comprehensive prompt for the planning task
+    start_datetime_str = f"- Start Date & Time: {workload_config.get('start_datetime', 'Not specified')}" if workload_config.get('start_datetime') else ""
+
     planning_message = f"""You are a GPU allocation planning agent. Analyze the workload requirements and create a ranked list of GPU configurations.
 
 WORKLOAD REQUIREMENTS:
@@ -46,6 +49,7 @@ WORKLOAD REQUIREMENTS:
 - Data Size: {workload_config.get('data', 'Not specified')}
 - Deadline: {workload_config.get('deadline', 'Not specified')} hours
 - Budget: ${workload_config.get('budget', 'Not specified')}
+{start_datetime_str}
 - Precision: {workload_config.get('precision', 'Not specified')}
 
 AVAILABLE GPU OPTIONS (USE ONLY THESE):
@@ -86,12 +90,14 @@ Return a JSON object with this exact structure:
   ]
 }}
 
-Return ONLY valid JSON, no additional text or markdown."""
+Return ONLY valid JSON, no additional text or markdown.
+Create a calendar invite if start_datetime is provided."""
+    asyncOpenAI = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     # Use OpenAI directly for pure reasoning (no tools needed)
     # Note: If you need tools, use metorial.run() instead, which requires server_deployments
-    response = await openai.chat.completions.create(
-        model="gpt-4o",
+    plan_response = await asyncOpenAI.chat.completions.create(
+        model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": "You are an expert GPU allocation planning agent. Return only valid JSON, no markdown or additional text."},
             {"role": "user", "content": planning_message}
@@ -100,22 +106,22 @@ Return ONLY valid JSON, no additional text or markdown."""
         max_tokens=3000,
         response_format={"type": "json_object"}
     )
-
+    
     # Record metrics for plan building
-    usage = response.usage if hasattr(response, 'usage') else None
+    usage = plan_response.usage if hasattr(plan_response, 'usage') else None
     try:
       nv.record(
           metric="gpu.finder.build_plan",
           ts=datetime.now(timezone.utc),
           input_tokens=usage.prompt_tokens if usage and usage.prompt_tokens else len(planning_message) // 4,
-          output_tokens=usage.completion_tokens if usage and usage.completion_tokens else len(response.choices[0].message.content) // 4,
+          output_tokens=usage.completion_tokens if usage and usage.completion_tokens else len(plan_response.choices[0].message.content) // 4,
       )
     except Exception as e:
       # Non-blocking: log but don't fail workflow if metrics fail
       print(f"Warning: Failed to record metrics for build_plan: {e}")
 
     # Parse JSON response
-    content = response.choices[0].message.content
+    content = plan_response.choices[0].message.content
     try:
         # Try to parse as JSON
         parsed = json.loads(content)
@@ -150,4 +156,5 @@ Return ONLY valid JSON, no additional text or markdown."""
             "risks": "Failed to generate plan. Please try again.",
             "recommendation": "Error occurred"
         }]
+
 
