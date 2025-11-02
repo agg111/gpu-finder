@@ -1,6 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
+import { useState } from "react"
 import {
   Server,
   Cpu,
@@ -11,15 +12,58 @@ import {
   AlertTriangle,
   CheckCircle,
   HardDrive,
+  Play,
+  Loader2,
+  ExternalLink,
+  Calendar,
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { GPUConfig } from "@/lib/api"
 
 interface GPUPlanCardProps {
   config: GPUConfig
   className?: string
+  onSchedule?: (config: GPUConfig) => Promise<any>
+  onRunNow?: (config: GPUConfig) => Promise<any>
+  hasStartDateTime?: boolean
 }
 
-export default function GPUPlanCard({ config, className }: GPUPlanCardProps) {
+export default function GPUPlanCard({ config, className, onSchedule, onRunNow, hasStartDateTime }: GPUPlanCardProps) {
+  const [isScheduling, setIsScheduling] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
+  const [scheduleStatus, setScheduleStatus] = useState<any>(null)
+  const [trainingStatus, setTrainingStatus] = useState<any>(null)
+
+  const handleSchedule = async () => {
+    if (!onSchedule) return
+
+    setIsScheduling(true)
+    try {
+      const result = await onSchedule(config)
+      setScheduleStatus(result)
+    } catch (error) {
+      console.error("Failed to schedule training:", error)
+      setScheduleStatus({ status: "error", message: "Failed to schedule training" })
+    } finally {
+      setIsScheduling(false)
+    }
+  }
+
+  const handleRunNow = async () => {
+    if (!onRunNow) return
+
+    setIsRunning(true)
+    try {
+      const result = await onRunNow(config)
+      setTrainingStatus(result)
+    } catch (error) {
+      console.error("Failed to start training:", error)
+      setTrainingStatus({ status: "error", message: "Failed to start training" })
+    } finally {
+      setIsRunning(false)
+    }
+  }
+
   const getRiskColor = () => {
     const lowerRisk = config.risks.toLowerCase()
     if (lowerRisk.includes("low risk") || lowerRisk.includes("within budget")) {
@@ -168,6 +212,122 @@ export default function GPUPlanCard({ config, className }: GPUPlanCardProps) {
               <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Recommendation</p>
               <p className="text-xs text-zinc-600 dark:text-zinc-400">{config.recommendation}</p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex gap-2">
+        {/* Schedule Button */}
+        {onSchedule && hasStartDateTime && (
+          <Button
+            onClick={handleSchedule}
+            disabled={isScheduling || scheduleStatus?.status === "success"}
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
+          >
+            {isScheduling ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Scheduling...
+              </>
+            ) : scheduleStatus?.status === "success" ? (
+              <>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Scheduled
+              </>
+            ) : (
+              <>
+                <Calendar className="mr-2 h-4 w-4" />
+                Schedule
+              </>
+            )}
+          </Button>
+        )}
+
+        {/* Run Now Button */}
+        {onRunNow && (
+          <Button
+            onClick={handleRunNow}
+            disabled={isRunning || trainingStatus?.status === "success"}
+            className={cn(
+              "text-white disabled:opacity-50",
+              hasStartDateTime && onSchedule ? "flex-1 bg-blue-600 hover:bg-blue-700" : "w-full bg-blue-600 hover:bg-blue-700"
+            )}
+          >
+            {isRunning ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Starting...
+              </>
+            ) : trainingStatus?.status === "success" ? (
+              <>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Training Started
+              </>
+            ) : (
+              <>
+                <Play className="mr-2 h-4 w-4" />
+                Run Now
+              </>
+            )}
+          </Button>
+        )}
+      </div>
+
+      {/* Training Status */}
+      {trainingStatus && trainingStatus.status === "success" && (
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+              <p className="text-sm font-semibold text-green-900 dark:text-green-100">Training Started Successfully!</p>
+            </div>
+            <div className="space-y-1 text-xs text-green-800 dark:text-green-200">
+              <p><span className="font-medium">Instance:</span> {trainingStatus.instance_type} ({trainingStatus.instance_id})</p>
+              <p><span className="font-medium">Model:</span> {trainingStatus.model} ({trainingStatus.model_size})</p>
+              <p><span className="font-medium">Dataset:</span> {trainingStatus.dataset}</p>
+              <p><span className="font-medium">Est. Cost:</span> {trainingStatus.estimated_cost}</p>
+              <p><span className="font-medium">Est. Time:</span> {trainingStatus.estimated_time}</p>
+            </div>
+            {trainingStatus.dashboard_url && (
+              <a
+                href={trainingStatus.dashboard_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline mt-2"
+              >
+                <ExternalLink className="w-3 h-3" />
+                View in AWS Console
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {trainingStatus && trainingStatus.status === "error" && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+            <p className="text-sm text-red-900 dark:text-red-100">{trainingStatus.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Status */}
+      {scheduleStatus && scheduleStatus.status === "success" && (
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+            <p className="text-sm font-semibold text-green-900 dark:text-green-100">{scheduleStatus.message || 'Training scheduled successfully!'}</p>
+          </div>
+        </div>
+      )}
+
+      {scheduleStatus && scheduleStatus.status === "error" && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+            <p className="text-sm text-red-900 dark:text-red-100">{scheduleStatus.message}</p>
           </div>
         </div>
       )}

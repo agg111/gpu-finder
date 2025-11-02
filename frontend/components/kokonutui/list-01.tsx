@@ -9,10 +9,85 @@ import GPUPlanCard from "./gpu-plan-card"
 interface List01Props {
   className?: string
   plan?: PlanResponse | null
+  formData?: {
+    modelName: string
+    workload: string
+    duration: string
+    budget?: string
+    startDateTime?: string
+  }
 }
 
-export default function List01({ className, plan }: List01Props) {
+export default function List01({ className, plan, formData }: List01Props) {
   const [currentIndex, setCurrentIndex] = useState(0)
+
+  const handleSchedule = async (config: any) => {
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+    if (!formData?.startDateTime) {
+      alert('Please provide a start date and time to schedule')
+      return { status: 'error', message: 'No start date/time provided' }
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/training/schedule`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          modelName: formData.modelName,
+          workload: formData.workload,
+          duration: formData.duration,
+          budget: formData.budget,
+          startDateTime: formData.startDateTime,
+          gpuConfig: config
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to schedule training')
+      }
+
+      const result = await response.json()
+      return result
+
+    } catch (error) {
+      console.error("Error scheduling training:", error)
+      throw error
+    }
+  }
+
+  const handleRunNow = async (config: any) => {
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/training/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          modelName: formData?.modelName || "minimal-model",
+          workload: formData?.workload || "10MB",
+          duration: formData?.duration || "1",
+          budget: formData?.budget,
+          gpuConfig: config
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start training')
+      }
+
+      const result = await response.json()
+      return result
+
+    } catch (error) {
+      console.error("Error starting training:", error)
+      throw error
+    }
+  }
 
   // If no plan, show placeholder
   if (!plan || !plan.configurations || plan.configurations.length === 0) {
@@ -69,7 +144,12 @@ export default function List01({ className, plan }: List01Props) {
 
       {/* Configuration Card */}
       <div className="p-4">
-        <GPUPlanCard config={currentConfig} />
+        <GPUPlanCard
+          config={currentConfig}
+          onSchedule={handleSchedule}
+          onRunNow={handleRunNow}
+          hasStartDateTime={!!formData?.startDateTime}
+        />
       </div>
 
       {/* Navigation & Actions */}

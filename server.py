@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import asyncio
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import nivara as nv
 import json
 
@@ -15,6 +16,7 @@ from workload import get_workload_config
 from gpu_data import get_gpu_data, get_gpu_data_streaming
 from planner import build_plan
 from notification import add_to_calendar
+from training import start_training
 
 app = FastAPI(title="GPU Finder API", version="1.0.0")
 
@@ -37,6 +39,25 @@ class PlanRequest(BaseModel):
     startDateTime: Optional[str] = None
     precision: Optional[str] = None
     framework: Optional[str] = None
+
+
+class TrainingRequest(BaseModel):
+    """Request model for training trigger endpoint"""
+    modelName: str
+    workload: str
+    duration: str
+    budget: Optional[str] = None
+    gpuConfig: dict
+
+
+class ScheduleRequest(BaseModel):
+    """Request model for schedule training endpoint"""
+    modelName: str
+    workload: str
+    duration: str
+    budget: Optional[str] = None
+    startDateTime: str
+    gpuConfig: dict
 
 
 class GPUConfig(BaseModel):
@@ -178,34 +199,6 @@ async def plan_generator(request: PlanRequest):
         }
         yield f"data: {json.dumps(result)}\n\n"
 
-        # Create calendar event in background if startDateTime is provided (after response is sent)
-        if request.startDateTime:
-            try:
-                # Parse the datetime string (format: YYYY-MM-DDTHH:MM)
-                event_datetime = datetime.fromisoformat(request.startDateTime)
-
-                # Create a descriptive title and description
-                event_title = f"Model Training: {request.modelName}"
-                event_description = f"""GPU Model Training Session
-
-Model: {request.modelName}
-Workload: {request.workload}
-Duration: {request.duration} hours
-Budget: ${request.budget if request.budget else 'Not specified'}
-
-Scheduled via GPU Finder Platform"""
-
-                # Create calendar event asynchronously (non-blocking, runs in background)
-                asyncio.create_task(add_to_calendar(
-                    dt=event_datetime,
-                    title=event_title,
-                    description=event_description
-                ))
-
-                print(f"[{datetime.now(timezone.utc)}] Calendar event creation initiated in background for {event_datetime}")
-            except Exception as e:
-                print(f"Warning: Failed to initiate calendar event: {e}")
-
     except asyncio.CancelledError:
         print(f"[{datetime.now(timezone.utc)}] SSE stream was cancelled")
         yield f"data: {json.dumps({'type': 'error', 'message': 'Request cancelled'})}\n\n"
@@ -310,34 +303,6 @@ async def create_plan(request: PlanRequest):
         # Convert plan (List[Dict]) to list of GPUConfig objects
         configurations = [GPUConfig(**config) for config in plan]
 
-        # Create calendar event in background if startDateTime is provided (non-blocking)
-        if request.startDateTime:
-            try:
-                # Parse the datetime string (format: YYYY-MM-DDTHH:MM)
-                event_datetime = datetime.fromisoformat(request.startDateTime)
-
-                # Create a descriptive title and description
-                event_title = f"GPU Training: {request.modelName}"
-                event_description = f"""GPU Model Training Session
-
-Model: {request.modelName}
-Workload: {request.workload}
-Duration: {request.duration} hours
-Budget: ${request.budget if request.budget else 'Not specified'}
-
-Scheduled via GPU Finder Platform"""
-
-                # Create calendar event asynchronously (non-blocking, runs in background)
-                asyncio.create_task(add_to_calendar(
-                    dt=event_datetime,
-                    title=event_title,
-                    description=event_description
-                ))
-
-                print(f"[{datetime.now(timezone.utc)}] Calendar event creation initiated in background for {event_datetime}")
-            except Exception as e:
-                print(f"Warning: Failed to initiate calendar event: {e}")
-
         # Return successful response
         return PlanResponse(
             status="success",
@@ -379,6 +344,167 @@ Scheduled via GPU Finder Platform"""
             detail={
                 "error": str(e),
                 "message": "Failed to create execution plan. Please try again or contact support."
+            }
+        )
+
+
+@app.post("/api/training/schedule")
+async def schedule_training(request: ScheduleRequest):
+    """
+    Schedule training by creating a calendar event for the specified datetime.
+
+    This endpoint:
+    - Creates calendar event with provided startDateTime
+    - Uses data from the selected GPU plan
+    """
+    try:
+        print(f"[{datetime.now(timezone.utc)}] Schedule training requested for model: {request.modelName}")
+
+        # Parse the datetime string and convert to PST
+        event_datetime = datetime.fromisoformat(request.startDateTime)
+        # If datetime is naive (no timezone), assume it's PST
+        if event_datetime.tzinfo is None:
+            event_datetime = event_datetime.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+        else:
+            # Convert to PST if it has a different timezone
+            event_datetime = event_datetime.astimezone(ZoneInfo("America/Los_Angeles"))
+
+        gpu_config = request.gpuConfig
+
+        # Create title and description using selected plan data
+        event_title = f"GPU Training: {request.modelName}"
+        event_description = f"""GPU Model Training Session
+
+Model: {request.modelName}
+Workload: {request.workload}
+Duration: {request.duration} hours
+Budget: ${request.budget if request.budget else 'Not specified'}
+
+GPU Configuration:
+- Provider: {gpu_config.get('provider', 'N/A')}
+- Instance: {gpu_config.get('instance_type', 'N/A')}
+- GPU: {gpu_config.get('gpu_count', 'N/A')}x {gpu_config.get('gpu_type', 'N/A')}
+- Cost: ${gpu_config.get('cost_per_hour', 0):.2f}/hour
+
+Scheduled via GPU Finder Platform"""
+
+        print(f"[{datetime.now(timezone.utc)}] Creating calendar event for {event_datetime.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+        # Run calendar creation in background (don't block the response)
+        async def create_calendar_event_background():
+            try:
+                await add_to_calendar(
+                    dt=event_datetime,
+                    title=event_title,
+                    description=event_description
+                )
+                print(f"[{datetime.now(timezone.utc)}] ✅ Calendar event created successfully!")
+            except Exception as e:
+                print(f"[{datetime.now(timezone.utc)}] ❌ Calendar event creation failed: {e}")
+                import traceback
+                traceback.print_exc()
+
+        asyncio.create_task(create_calendar_event_background())
+
+        return {
+            "status": "success",
+            "message": f"Training scheduled for {event_datetime.strftime('%Y-%m-%d at %H:%M %Z')}. Calendar invite being created...",
+            "scheduled_time": event_datetime.isoformat()
+        }
+
+    except Exception as e:
+        print(f"[{datetime.now(timezone.utc)}] Error scheduling training: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "message": "Failed to schedule training. Please try again."
+            }
+        )
+
+
+@app.post("/api/training/start")
+async def trigger_training(request: TrainingRequest):
+    """
+    Trigger training immediately with minimal resources.
+
+    This endpoint:
+    - Starts training with minimal model and dataset
+    - Creates calendar event for current time
+    """
+    try:
+        print(f"[{datetime.now(timezone.utc)}] Training trigger requested for model: {request.modelName}")
+
+        # Start training with the specified configuration
+        result = await start_training(
+            model_name=request.modelName,
+            workload=request.workload,
+            duration=request.duration,
+            budget=request.budget,
+            gpu_config=request.gpuConfig
+        )
+
+        print(f"[{datetime.now(timezone.utc)}] Training started: {result.get('status')}")
+
+        # Create calendar event for current time in PST (blocking is OK here)
+        current_time = datetime.now(ZoneInfo("America/Los_Angeles"))
+        gpu_config = request.gpuConfig
+
+        # Create title and description using selected plan data
+        event_title = f"Model Training: {request.modelName}"
+        event_description = f"""GPU Model Training Session:
+
+Model: {request.modelName}
+Workload: {request.workload}
+Duration: {request.duration} hours
+Budget: ${request.budget if request.budget else 'Not specified'}
+
+GPU Configuration:
+- Provider: {gpu_config.get('provider', 'N/A')}
+- Instance: {gpu_config.get('instance_type', 'N/A')}
+- GPU: {gpu_config.get('gpu_count', 'N/A')}x {gpu_config.get('gpu_type', 'N/A')}
+- Cost: ${gpu_config.get('cost_per_hour', 0):.2f}/hour
+
+Started via GPU Finder Platform"""
+
+        # Convert current time to PST
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+        else:
+            # Convert to PST if it has a different timezone
+            current_time = current_time.astimezone(ZoneInfo("America/Los_Angeles"))
+
+        print(f"[{datetime.now(timezone.utc)}] Creating calendar event for current time: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+        # Run calendar creation in background (don't block the response)
+        async def create_calendar_event_background():
+            try:
+                await add_to_calendar(
+                    dt=current_time,
+                    title=event_title,
+                    description=event_description
+                )
+                print(f"[{datetime.now(timezone.utc)}] ✅ Calendar event created successfully!")
+            except Exception as e:
+                print(f"[{datetime.now(timezone.utc)}] ❌ Calendar event creation failed: {e}")
+                import traceback
+                traceback.print_exc()
+
+        asyncio.create_task(create_calendar_event_background())
+
+        return result
+
+    except Exception as e:
+        print(f"[{datetime.now(timezone.utc)}] Error starting training: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "message": "Failed to start training. Please try again."
             }
         )
 
